@@ -33,8 +33,19 @@ https://github.com/Bamo0507/Laboratorio7_RL
 
 ## **Actividad 1 — Variables Dicotómicas**
 
-```{r variables-dicotomicas}
+En este caso, para trabajar en la misma línea de laboratorios pasados, la clasificación para los precios de las casas será: cara, intermedia y económica. Dado a que estamos trabajando con un modelo que utiliza variables cuantitativas para funcionar, en este caso para identificar a qué categoría perteneces se declararon tres variables nuevas para cada set de datos (entrenamiento y prueba): es_cara, es_intermedia, y es_economica. Sus valores serán 0 si no pertenece y 1 en caso de que lo haga.
 
+```{r variables-dicotomicas}
+train_clf$es_cara <- as.integer(train_clf$price_cat == "Cara")
+train_clf$es_intermedia <- as.integer(train_clf$price_cat == "Intermedia")
+train_clf$es_economica <- as.integer(train_clf$price_cat == "Economica")
+
+test_clf$es_cara <- as.integer(test_clf$price_cat == "Cara")
+test_clf$es_intermedia <- as.integer(test_clf$price_cat == "Intermedia")
+test_clf$es_economica <- as.integer(test_clf$price_cat == "Economica")
+
+cat("Distribucion en entrenamiento:\n")
+print(table(train_clf$price_cat))
 ```
 
 ---
