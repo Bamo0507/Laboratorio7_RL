@@ -349,99 +349,20 @@ for (umbral in c(0.3, 0.3492, 0.4)) {
 }
 ```
 
-El índice de Youden identificó un umbral óptimo de 0.3492, por lo que se probó el modelo con umbrales de 0.3, 0.3492 y 0.4. Dado el tipo de negocio, lo que más interesa es no dejar escapar propiedades caras, ya que clasificarlas a un precio menor al real implica pérdidas directas para SmartStay. Por eso, el criterio de selección prioriza la sensitivity más alta, que se obtiene con un umbral de 0.3. Si bien este no ofrece el mejor accuracy ni la mayor specificity, es el que mejor se adapta a lo que el negocio necesita cuidar. 
+Al probar con umbrales por debajo de 0.5, las métricas de sensitivity mejoran respecto al umbral por defecto, lo que refleja el comportamiento que se había identificado previamente: el modelo tiene más facilidad para descartar propiedades no caras y tendía a clasificar como no caras algunas que sí lo eran. Al reducir el umbral, se corrige parcialmente ese sesgo, logrando que más propiedades caras sean identificadas correctamente.
 
 ---
-
 
 ## **Actividad 10 — Selección del Mejor Modelo Binario**
 
 ```{r rl-cara-seleccion}
-pred_youden_clase <- factor(
-  ifelse(pred_tuned_prob >= umbral_youden, "Si", "No"),
-  levels = c("No", "Si")
-)
-
-cm_youden <- confusionMatrix(pred_youden_clase, test_rl$es_cara, positive = "Si")
-
-tiempo_base <- system.time({
-  predict(modelo_rl_cara, newdata = test_rl, type = "prob")[, "Si"]
-})
-
-tiempo_tuned_05 <- system.time({
-  predict(modelo_rl_tuned, newx = X_test_rl, type = "response")[, 1]
-})
-
-comparacion_binaria <- data.frame(
-  modelo = c(
-    "RL base (umbral 0.5)",
-    "RL regularizada (umbral 0.5)",
-    paste0("RL regularizada (Youden = ", round(umbral_youden, 4), ")")
-  ),
-  AIC = c(
-    AIC(modelo_rl_cara$finalModel),
-    NA,
-    NA
-  ),
-  BIC = c(
-    BIC(modelo_rl_cara$finalModel),
-    NA,
-    NA
-  ),
-  Accuracy = c(
-    as.numeric(cm_cara$overall["Accuracy"]),
-    as.numeric(cm_tuned$overall["Accuracy"]),
-    as.numeric(cm_youden$overall["Accuracy"])
-  ),
-  Sensitivity = c(
-    as.numeric(cm_cara$byClass["Sensitivity"]),
-    as.numeric(cm_tuned$byClass["Sensitivity"]),
-    as.numeric(cm_youden$byClass["Sensitivity"])
-  ),
-  Specificity = c(
-    as.numeric(cm_cara$byClass["Specificity"]),
-    as.numeric(cm_tuned$byClass["Specificity"]),
-    as.numeric(cm_youden$byClass["Specificity"])
-  ),
-  F1 = c(
-    as.numeric(cm_cara$byClass["F1"]),
-    as.numeric(cm_tuned$byClass["F1"]),
-    as.numeric(cm_youden$byClass["F1"])
-  ),
-  FP = c(
-    as.numeric(cm_cara$table["Si", "No"]),
-    as.numeric(cm_tuned$table["Si", "No"]),
-    as.numeric(cm_youden$table["Si", "No"])
-  ),
-  FN = c(
-    as.numeric(cm_cara$table["No", "Si"]),
-    as.numeric(cm_tuned$table["No", "Si"]),
-    as.numeric(cm_youden$table["No", "Si"])
-  ),
-  tiempo_pred_seg = c(
-    as.numeric(tiempo_base["elapsed"]),
-    as.numeric(tiempo_tuned_05["elapsed"]),
-    as.numeric(tiempo_tuned_05["elapsed"])
-  )
-)
-
-comparacion_binaria_fmt <- comparacion_binaria
-comparacion_binaria_fmt[] <- lapply(comparacion_binaria_fmt, function(x) {
-  if (is.numeric(x)) round(x, 4) else x
-})
-
-knitr::kable(
-  comparacion_binaria_fmt,
-  caption = "Comparación de variantes del modelo binario"
-)
-print(cm_youden)
+cat("AIC modelo base:", AIC(modelo_rl_cara$finalModel), "\n")
+cat("BIC modelo base:", BIC(modelo_rl_cara$finalModel), "\n")
 ```
 
-Al comparar las tres variantes, el modelo base y el regularizado con umbral 0.5 quedan prácticamente empatados: ambos rondan un **accuracy de 0.81**, una **specificity cercana a 0.90** y una **sensitivity de 0.62**. En otras palabras, funcionan muy bien para descartar propiedades que no son caras, pero siguen dejando pasar una cantidad importante de propiedades caras.
+El índice de Youden identificó un umbral óptimo de `r round(umbral_youden, 4)`, por lo que se probaron umbrales de 0.3, `r round(umbral_youden, 4)` y 0.4. Desde el punto de vista estadístico, el modelo base es el único del que puede reportarse directamente AIC y BIC, ya que los modelos regularizados con glmnet no producen estas métricas de forma directa. Un AIC más bajo indica mejor balance entre ajuste y complejidad, y en este caso el modelo base ofrece ese punto de referencia formal.
 
-Cuando se cambia el umbral al valor sugerido por el índice de Youden (**0.3361** en esta corrida), el accuracy baja a aproximadamente **0.7947**, pero la sensitivity sube a **0.7686** y el **F1** mejora hasta alrededor de **0.7127**. Lo más importante es que los falsos negativos bajan de **2,359** a **1,444**, es decir, se dejan de perder **915** propiedades caras que antes estaban siendo clasificadas como no caras.
-
-Por eso, la respuesta depende del criterio. Si el criterio fuera únicamente ajuste estadístico clásico y accuracy bruto, el modelo base luce ligeramente mejor y además es el único para el que aquí puede reportarse directamente **AIC = 37839.82** y **BIC = 38039.72**. Pero si el criterio es el del negocio de SmartStay —evitar subvalorar propiedades caras— entonces el mejor modelo binario es la **regresión logística regularizada con umbral ajustado por Youden**, porque reduce el error más costoso para la consultoría.
+Sin embargo, desde el criterio del negocio, lo que más interesa es no dejar escapar propiedades caras, ya que clasificarlas a un precio menor al real implica pérdidas directas para SmartStay. Por eso, el criterio de selección prioriza la sensitivity más alta, que se obtiene con un umbral de 0.3. Si bien este no ofrece el mejor accuracy ni la mayor specificity, es el que mejor se adapta a lo que el negocio necesita cuidar. Este trade-off es consciente: al bajar el umbral, el modelo etiqueta más propiedades como caras, lo que incluye algunas que no lo son, pero en este contexto ese error es menos costoso que subestimar el precio de una propiedad realmente cara.
 
 ---
 
@@ -643,12 +564,9 @@ knitr::kable(
 )
 ```
 
-```{r comparacion-final}
-comparacion_modelos
-```
 
-En la comparación final, el modelo que mejor se comporta es **Random Forest**, con un accuracy esperado cercano a **0.7402** y el menor número de errores totales (**4,896**). Esto tiene bastante lógica: frente a un problema donde la clase intermedia se mezcla con las otras dos y las relaciones entre variables no son completamente lineales, un ensamble de árboles puede capturar interacciones y fronteras complejas mucho mejor que una regresión logística.
+En la comparación final, el modelo que mejor se comporta es **Random Forest**, con un accuracy de **0.7563** y el menor número de errores totales (**4,548**). Esto tiene bastante lógica: frente a un problema donde la clase intermedia se mezcla con las otras dos y las relaciones entre variables no son completamente lineales, un ensamble de árboles puede capturar interacciones y fronteras complejas mucho mejor que una regresión logística.
 
-El modelo que **más se demoró en procesar** fue **KNN**, sobre todo en la etapa de predicción. En una corrida equivalente, su tiempo de predicción ronda los **28.6 segundos**, mucho más que los demás. Esto sucede porque KNN no “aprende” una frontera compacta, sino que compara cada observación nueva con una gran cantidad de observaciones del entrenamiento. Por eso, aunque su accuracy puede ser aceptable (**~0.6544**), su costo computacional lo vuelve poco práctico cuando el volumen de datos crece.
+El modelo que **más se demoró en procesar** fue **KNN**, con un tiempo total de **22.97 segundos**, de los cuales **7.74 segundos** corresponden únicamente a la predicción. Esto sucede porque KNN no aprende una frontera compacta, sino que compara cada observación nueva con una gran cantidad de observaciones del entrenamiento. Por eso, aunque su accuracy es aceptable (**0.6593**), su costo computacional lo vuelve poco práctico cuando el volumen de datos crece.
 
-El modelo que **más se equivocó** fue **Naive Bayes**, con aproximadamente **7,659 errores** y un accuracy cercano a **0.5935**. El que **menos se equivocó** fue **Random Forest**. La **regresión logística multinomial** quedó en un punto intermedio: es más rápida y más interpretable que Random Forest, pero se equivoca más (**~6,821 errores**) porque impone fronteras más rígidas y lineales. El **árbol de decisión** también supera a la logística multinomial en accuracy (**~0.6856**), pero sigue por debajo de Random Forest porque un solo árbol tiene más varianza y menor capacidad de generalización. En resumen, si se prioriza desempeño predictivo, el mejor modelo final es **Random Forest**; si se prioriza interpretabilidad y velocidad de inferencia, la **regresión logística multinomial** sigue siendo defendible como modelo explicativo.
+El modelo que **más se equivocó** fue **Naive Bayes**, con **10,940 errores** y un accuracy de apenas **0.4139**, lo que evidencia que sus supuestos de independencia entre variables no se cumplen bien en este conjunto de datos. El que **menos se equivocó** fue **Random Forest**. La **regresión logística multinomial** quedó en un punto intermedio con **6,691 errores** y un accuracy de **0.6415**, superada tanto por Random Forest como por el árbol de decisión (**0.6696**), ya que impone fronteras lineales que limitan su capacidad para separar correctamente la clase intermedia. En resumen, si se prioriza desempeño predictivo, el mejor modelo es **Random Forest**; si se prioriza interpretabilidad y velocidad de inferencia, la **regresión logística multinomial** sigue siendo una alternativa válida.
