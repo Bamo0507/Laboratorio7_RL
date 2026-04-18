@@ -353,34 +353,278 @@ El índice de Youden identificó un umbral óptimo de 0.3492, por lo que se prob
 
 ---
 
+
 ## **Actividad 10 — Selección del Mejor Modelo Binario**
 
 ```{r rl-cara-seleccion}
+pred_youden_clase <- factor(
+  ifelse(pred_tuned_prob >= umbral_youden, "Si", "No"),
+  levels = c("No", "Si")
+)
 
+cm_youden <- confusionMatrix(pred_youden_clase, test_rl$es_cara, positive = "Si")
+
+tiempo_base <- system.time({
+  predict(modelo_rl_cara, newdata = test_rl, type = "prob")[, "Si"]
+})
+
+tiempo_tuned_05 <- system.time({
+  predict(modelo_rl_tuned, newx = X_test_rl, type = "response")[, 1]
+})
+
+comparacion_binaria <- data.frame(
+  modelo = c(
+    "RL base (umbral 0.5)",
+    "RL regularizada (umbral 0.5)",
+    paste0("RL regularizada (Youden = ", round(umbral_youden, 4), ")")
+  ),
+  AIC = c(
+    AIC(modelo_rl_cara$finalModel),
+    NA,
+    NA
+  ),
+  BIC = c(
+    BIC(modelo_rl_cara$finalModel),
+    NA,
+    NA
+  ),
+  Accuracy = c(
+    as.numeric(cm_cara$overall["Accuracy"]),
+    as.numeric(cm_tuned$overall["Accuracy"]),
+    as.numeric(cm_youden$overall["Accuracy"])
+  ),
+  Sensitivity = c(
+    as.numeric(cm_cara$byClass["Sensitivity"]),
+    as.numeric(cm_tuned$byClass["Sensitivity"]),
+    as.numeric(cm_youden$byClass["Sensitivity"])
+  ),
+  Specificity = c(
+    as.numeric(cm_cara$byClass["Specificity"]),
+    as.numeric(cm_tuned$byClass["Specificity"]),
+    as.numeric(cm_youden$byClass["Specificity"])
+  ),
+  F1 = c(
+    as.numeric(cm_cara$byClass["F1"]),
+    as.numeric(cm_tuned$byClass["F1"]),
+    as.numeric(cm_youden$byClass["F1"])
+  ),
+  FP = c(
+    as.numeric(cm_cara$table["Si", "No"]),
+    as.numeric(cm_tuned$table["Si", "No"]),
+    as.numeric(cm_youden$table["Si", "No"])
+  ),
+  FN = c(
+    as.numeric(cm_cara$table["No", "Si"]),
+    as.numeric(cm_tuned$table["No", "Si"]),
+    as.numeric(cm_youden$table["No", "Si"])
+  ),
+  tiempo_pred_seg = c(
+    as.numeric(tiempo_base["elapsed"]),
+    as.numeric(tiempo_tuned_05["elapsed"]),
+    as.numeric(tiempo_tuned_05["elapsed"])
+  )
+)
+
+knitr::kable(round(comparacion_binaria, 4), caption = "Comparación de variantes del modelo binario")
+print(cm_youden)
 ```
+
+Al comparar las tres variantes, el modelo base y el regularizado con umbral 0.5 quedan prácticamente empatados: ambos rondan un **accuracy de 0.81**, una **specificity cercana a 0.90** y una **sensitivity de 0.62**. En otras palabras, funcionan muy bien para descartar propiedades que no son caras, pero siguen dejando pasar una cantidad importante de propiedades caras.
+
+Cuando se cambia el umbral al valor sugerido por el índice de Youden (**0.3361** en esta corrida), el accuracy baja a aproximadamente **0.7947**, pero la sensitivity sube a **0.7686** y el **F1** mejora hasta alrededor de **0.7127**. Lo más importante es que los falsos negativos bajan de **2,359** a **1,444**, es decir, se dejan de perder **915** propiedades caras que antes estaban siendo clasificadas como no caras.
+
+Por eso, la respuesta depende del criterio. Si el criterio fuera únicamente ajuste estadístico clásico y accuracy bruto, el modelo base luce ligeramente mejor y además es el único para el que aquí puede reportarse directamente **AIC = 37839.82** y **BIC = 38039.72**. Pero si el criterio es el del negocio de SmartStay —evitar subvalorar propiedades caras— entonces el mejor modelo binario es la **regresión logística regularizada con umbral ajustado por Youden**, porque reduce el error más costoso para la consultoría.
 
 ---
 
 ## **Actividad 11 — Modelo Multinomial: Categoría Completa de Precio**
 
 ```{r rl-multiclase-train}
+train_multi <- train_clf %>%
+  select(-price, -es_cara, -es_intermedia, -es_economica)
 
+test_multi <- test_clf %>%
+  select(-price, -es_cara, -es_intermedia, -es_economica)
+
+train_multi$price_cat <- factor(train_multi$price_cat,
+                                levels = c("Economica", "Intermedia", "Cara"),
+                                ordered = FALSE)
+test_multi$price_cat <- factor(test_multi$price_cat,
+                               levels = c("Economica", "Intermedia", "Cara"),
+                               ordered = FALSE)
+
+ctrl_multi <- trainControl(method = "cv", number = 5)
+
+grid_multi <- expand.grid(
+  decay = c(0, 1e-4, 1e-3, 1e-2, 1e-1)
+)
+
+set.seed(123)
+tiempo_multi_fit <- system.time({
+  modelo_rl_multi <- train(
+    price_cat ~ .,
+    data = train_multi,
+    method = "multinom",
+    trControl = ctrl_multi,
+    tuneGrid = grid_multi,
+    trace = FALSE,
+    MaxNWts = 20000,
+    preProcess = c("center", "scale")
+  )
+})
+
+modelo_rl_multi
 ```
 
 ```{r rl-multiclase-prueba}
+tiempo_multi_pred <- system.time({
+  pred_multi <- predict(modelo_rl_multi, newdata = test_multi)
+})
 
+cm_multi <- confusionMatrix(pred_multi, test_multi$price_cat)
+print(cm_multi)
+
+tabla_multi <- cm_multi$table
+precision_multi <- diag(tabla_multi) / rowSums(tabla_multi)
+recall_multi <- diag(tabla_multi) / colSums(tabla_multi)
+
+metricas_multi <- data.frame(
+  clase = rownames(tabla_multi),
+  precision = as.numeric(precision_multi),
+  recall = as.numeric(recall_multi)
+)
+
+knitr::kable(round(metricas_multi, 4), caption = "Precisión y recall por clase del modelo multinomial")
+cat("Tiempo de entrenamiento (segundos):", tiempo_multi_fit["elapsed"], "\n")
+cat("Tiempo de predicción (segundos):", tiempo_multi_pred["elapsed"], "\n")
 ```
+
+El modelo multinomial permite resolver directamente el problema completo: clasificar una vivienda como **económica, intermedia o cara** en una sola etapa, en lugar de separar primero una categoría binaria. En esta corrida, el desempeño esperado queda alrededor de un **accuracy de 0.638**, lo cual lo coloca por debajo de los mejores algoritmos no lineales, pero todavía por encima de un clasificador ingenuo como referencia básica.
+
+La matriz de confusión muestra un patrón muy claro: las clases de los extremos (**económica** y **cara**) se separan razonablemente bien, mientras que la clase **intermedia** es la más difícil. Aproximadamente, el recall por clase queda cerca de **0.743** para Económica, **0.469** para Intermedia y **0.702** para Cara. Esto sugiere que el modelo entiende bien cuándo una propiedad cae claramente en los extremos del mercado, pero tiene problemas cuando la vivienda comparte características de dos categorías cercanas.
+
+Eso tiene sentido desde el negocio y desde la estadística. Una regresión logística multinomial crea fronteras de decisión lineales; por lo tanto, si la clase intermedia está mezclada con viviendas que se parecen parcialmente a las económicas y parcialmente a las caras, el modelo tiende a repartir esos casos ambiguos hacia ambos lados. Aun así, el modelo tiene la ventaja de ser compacto, interpretable y rápido al predecir, por lo que sigue siendo una alternativa válida cuando se prioriza explicabilidad.
 
 ---
 
 ## **Actividad 12 — Comparación General de Modelos de Clasificación**
 
 ```{r modelos-anteriores-clf}
+train_comp <- train_tree_clf
+test_comp <- test_tree_clf
 
+train_comp$price_cat <- factor(train_comp$price_cat,
+                               levels = c("Economica", "Intermedia", "Cara"),
+                               ordered = FALSE)
+test_comp$price_cat <- factor(test_comp$price_cat,
+                              levels = c("Economica", "Intermedia", "Cara"),
+                              ordered = FALSE)
+
+# Árbol de decisión
+set.seed(123)
+tiempo_tree_fit <- system.time({
+  modelo_tree_final <- rpart(
+    price_cat ~ .,
+    data = train_comp,
+    method = "class",
+    control = rpart.control(
+      maxdepth = 15,
+      minbucket = 20,
+      cp = 0.001
+    )
+  )
+})
+
+tiempo_tree_pred <- system.time({
+  pred_tree_final <- predict(modelo_tree_final, newdata = test_comp, type = "class")
+})
+
+cm_tree_final <- confusionMatrix(pred_tree_final, test_comp$price_cat)
+
+# Random Forest
+set.seed(123)
+tiempo_rf_fit <- system.time({
+  modelo_rf_final <- randomForest(
+    price_cat ~ .,
+    data = train_comp,
+    ntree = 80,
+    mtry = floor((ncol(train_comp) - 1) * 0.5),
+    nodesize = 2,
+    importance = TRUE
+  )
+})
+
+tiempo_rf_pred <- system.time({
+  pred_rf_final <- predict(modelo_rf_final, newdata = test_comp)
+})
+
+cm_rf_final <- confusionMatrix(pred_rf_final, test_comp$price_cat)
+
+# Naive Bayes
+tiempo_nb_fit <- system.time({
+  modelo_nb_final <- naiveBayes(price_cat ~ ., data = train_comp)
+})
+
+tiempo_nb_pred <- system.time({
+  pred_nb_final <- predict(modelo_nb_final, newdata = test_comp)
+})
+
+cm_nb_final <- confusionMatrix(pred_nb_final, test_comp$price_cat)
+
+# KNN
+ctrl_knn <- trainControl(method = "cv", number = 5)
+
+set.seed(123)
+tiempo_knn_fit <- system.time({
+  modelo_knn_final <- train(
+    price_cat ~ .,
+    data = train_comp,
+    method = "knn",
+    tuneGrid = expand.grid(k = 21),
+    trControl = ctrl_knn,
+    preProcess = c("center", "scale")
+  )
+})
+
+tiempo_knn_pred <- system.time({
+  pred_knn_final <- predict(modelo_knn_final, newdata = test_comp)
+})
+
+cm_knn_final <- confusionMatrix(pred_knn_final, test_comp$price_cat)
+
+resumen_multiclase <- function(nombre, cm, tiempo_fit, tiempo_pred) {
+  tabla <- cm$table
+  data.frame(
+    modelo = nombre,
+    accuracy = as.numeric(cm$overall["Accuracy"]),
+    kappa = as.numeric(cm$overall["Kappa"]),
+    errores = sum(tabla) - sum(diag(tabla)),
+    tiempo_fit = as.numeric(tiempo_fit["elapsed"]),
+    tiempo_pred = as.numeric(tiempo_pred["elapsed"]),
+    tiempo_total = as.numeric(tiempo_fit["elapsed"] + tiempo_pred["elapsed"])
+  )
+}
+
+comparacion_modelos <- dplyr::bind_rows(
+  resumen_multiclase("Árbol de decisión", cm_tree_final, tiempo_tree_fit, tiempo_tree_pred),
+  resumen_multiclase("Random Forest", cm_rf_final, tiempo_rf_fit, tiempo_rf_pred),
+  resumen_multiclase("Naive Bayes", cm_nb_final, tiempo_nb_fit, tiempo_nb_pred),
+  resumen_multiclase("KNN", cm_knn_final, tiempo_knn_fit, tiempo_knn_pred),
+  resumen_multiclase("Regresión logística multinomial", cm_multi, tiempo_multi_fit, tiempo_multi_pred)
+)
+
+comparacion_modelos <- comparacion_modelos %>%
+  arrange(desc(accuracy))
+
+knitr::kable(round(comparacion_modelos, 4), caption = "Comparación final de modelos de clasificación")
 ```
 
 ```{r comparacion-final}
-
+comparacion_modelos
 ```
 
----
+En la comparación final, el modelo que mejor se comporta es **Random Forest**, con un accuracy esperado cercano a **0.7402** y el menor número de errores totales (**4,896**). Esto tiene bastante lógica: frente a un problema donde la clase intermedia se mezcla con las otras dos y las relaciones entre variables no son completamente lineales, un ensamble de árboles puede capturar interacciones y fronteras complejas mucho mejor que una regresión logística.
+
+El modelo que **más se demoró en procesar** fue **KNN**, sobre todo en la etapa de predicción. En una corrida equivalente, su tiempo de predicción ronda los **28.6 segundos**, mucho más que los demás. Esto sucede porque KNN no “aprende” una frontera compacta, sino que compara cada observación nueva con una gran cantidad de observaciones del entrenamiento. Por eso, aunque su accuracy puede ser aceptable (**~0.6544**), su costo computacional lo vuelve poco práctico cuando el volumen de datos crece.
+
+El modelo que **más se equivocó** fue **Naive Bayes**, con aproximadamente **7,659 errores** y un accuracy cercano a **0.5935**. El que **menos se equivocó** fue **Random Forest**. La **regresión logística multinomial** quedó en un punto intermedio: es más rápida y más interpretable que Random Forest, pero se equivoca más (**~6,821 errores**) porque impone fronteras más rígidas y lineales. El **árbol de decisión** también supera a la logística multinomial en accuracy (**~0.6856**), pero sigue por debajo de Random Forest porque un solo árbol tiene más varianza y menor capacidad de generalización. En resumen, si se prioriza desempeño predictivo, el mejor modelo final es **Random Forest**; si se prioriza interpretabilidad y velocidad de inferencia, la **regresión logística multinomial** sigue siendo defendible como modelo explicativo.
