@@ -196,20 +196,70 @@ corrplot::corrplot(cor_matrix, method = "color", type = "upper",
 ## **Actividad 5 — Evaluación en Conjunto de Prueba**
 
 ```{r rl-cara-prueba}
+pred_prob_cara <- predict(modelo_rl_cara, newdata = test_rl, type = "prob")[, "Si"]
+pred_clase_cara <- ifelse(pred_prob_cara >= 0.5, "Si", "No")
+pred_clase_cara <- factor(pred_clase_cara, levels = c("No", "Si"))
 
+cm_cara <- confusionMatrix(pred_clase_cara, test_rl$es_cara, positive = "Si")
+print(cm_cara)
 ```
+
+Al evaluar el modelo en el conjunto de prueba, se observa que tiene una tendencia a infravalorar el precio de las propiedades, es decir, está más inclinado a clasificar una propiedad como no cara que a reconocer que sí lo es. Esto puede deberse en parte a la presencia de outliers en el conjunto de datos, que dificultan que el modelo aprenda correctamente el peso de cada variable a la hora de identificar propiedades de precio alto.
+
+Si bien el accuracy del 81% puede parecer alentador a primera vista, en este contexto resulta engañoso. Al revisar el sensitivity de 62%, se evidencia que el modelo está dejando pasar una cantidad importante de propiedades que realmente son caras sin identificarlas como tal. Esto representa un riesgo real para SmartStay, ya que subestimar el precio de una propiedad cara implica pérdidas directas para el negocio. La especificidad del 90% refuerza esta idea: el modelo es muy bueno descartando propiedades no caras, lo que confirma que su sesgo apunta hacia ese lado.
 
 ---
 
 ## **Actividad 6 — Sobreajuste y Curvas de Aprendizaje**
 
 ```{r rl-cara-overfitting}
+pred_train_prob <- predict(modelo_rl_cara, newdata = train_rl, type = "prob")[, "Si"]
+pred_train_clase <- factor(ifelse(pred_train_prob >= 0.5, "Si", "No"), levels = c("No", "Si"))
 
+cm_train <- confusionMatrix(pred_train_clase, train_rl$es_cara, positive = "Si")
+
+cat("ENTRENAMIENTO\n")
+cat("Accuracy:    ", round(cm_train$overall["Accuracy"], 4), "\n")
+cat("Sensitivity: ", round(cm_train$byClass["Sensitivity"], 4), "\n")
+cat("Specificity: ", round(cm_train$byClass["Specificity"], 4), "\n\n")
+
+cat("PRUEBA\n")
+cat("Accuracy:    ", round(cm_cara$overall["Accuracy"], 4), "\n")
+cat("Sensitivity: ", round(cm_cara$byClass["Sensitivity"], 4), "\n")
+cat("Specificity: ", round(cm_cara$byClass["Specificity"], 4), "\n")
 ```
+
+Al revisar los resultados, el modelo no presenta sobreajuste. Si este fuera el caso, se esperaría que las métricas en entrenamiento fueran notablemente superiores a las de prueba, lo cual no ocurre. El accuracy baja de 0.8133 a 0.8108, la sensitivity de 0.6322 a 0.6240 y la specificity de 0.9020 a 0.9019, una diferencia de apenas 0.0001. Los rendimientos son prácticamente idénticos en ambos conjuntos, siempre ligeramente menores en prueba como es natural, pero sin la caída drástica que caracterizaría un modelo sobreajustado. Esto indica que el modelo generaliza bien a datos nuevos.
 
 ```{r rl-cara-curvas}
+set.seed(123)
+tamanos <- floor(seq(0.1, 1.0, by = 0.1) * nrow(train_rl))
+resultados_curva <- data.frame()
 
+for (n in tamanos) {
+  idx <- sample(nrow(train_rl), n)
+  subset_train <- train_rl[idx, ]
+  modelo_curva <- glm(es_cara ~ ., data = subset_train, family = binomial)
+
+  pred_tr <- ifelse(predict(modelo_curva, newdata = subset_train, type = "response") >= 0.5, "Si", "No")
+  pred_te <- ifelse(predict(modelo_curva, newdata = test_rl, type = "response") >= 0.5, "Si", "No")
+
+  acc_tr <- mean(pred_tr == as.character(subset_train$es_cara))
+  acc_te <- mean(pred_te == as.character(test_rl$es_cara))
+
+  resultados_curva <- rbind(resultados_curva, data.frame(n = n, conjunto = "Entrenamiento", accuracy = acc_tr))
+  resultados_curva <- rbind(resultados_curva, data.frame(n = n, conjunto = "Prueba", accuracy = acc_te))
+}
+
+ggplot(resultados_curva, aes(x = n, y = accuracy, color = conjunto)) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  labs(title = "Curvas de aprendizaje", x = "Tamaño del conjunto de entrenamiento",
+       y = "Accuracy", color = "Conjunto") +
+  theme_minimal()
 ```
+
+La curva contribuye a la idea de que no hay sobreajuste, ya que se evidencia que a medida que aumenta el tamaño del conjunto de entrenamiento, ambas curvas convergen y se estabilizan, manteniéndose muy cercanas entre sí.
 
 ---
 
