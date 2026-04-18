@@ -23,6 +23,61 @@ library(pROC)
 library(profvis)
 library(nnet)
 load("listings.RData")
+
+listings$price <- as.numeric(gsub("[$,]", "", listings$price))
+
+vars_eliminar <- c(
+  "id", "listing_url", "scrape_id", "picture_url",
+  "host_id", "host_url", "host_thumbnail_url", "host_picture_url",
+  "name", "description", "neighborhood_overview", "host_about",
+  "host_name", "host_location", "amenities", "host_verifications",
+  "source", "last_scraped", "calendar_last_scraped", "calendar_updated",
+  "host_since", "first_review", "last_review",
+  "bathrooms_text", "host_total_listings_count", "neighbourhood",
+  "minimum_nights_avg_ntm", "maximum_nights_avg_ntm",
+  "number_of_reviews_ltm", "number_of_reviews_l30d", "number_of_reviews_ly",
+  "calculated_host_listings_count_entire_homes",
+  "calculated_host_listings_count_private_rooms",
+  "calculated_host_listings_count_shared_rooms",
+  "estimated_revenue_l365d",
+  "host_has_profile_pic", "neighbourhood_group_cleansed"
+)
+
+listings_clean <- listings[, !(names(listings) %in% vars_eliminar)]
+listings_model <- listings_clean[!is.na(listings_clean$price), ]
+
+set.seed(42)
+trainIndex <- sample(seq_len(nrow(listings_model)), size = floor(0.7 * nrow(listings_model)))
+train <- listings_model[ trainIndex, ]
+test  <- listings_model[-trainIndex, ]
+
+train_num <- na.omit(train[, sapply(train, is.numeric)])
+test_num  <- test[, names(train_num)]
+test_num  <- na.omit(test_num)
+
+q33 <- as.numeric(quantile(train_num$price, probs = 0.33, na.rm = TRUE))
+q67 <- as.numeric(quantile(train_num$price, probs = 0.67, na.rm = TRUE))
+
+train_clf <- train_num %>%
+  mutate(price_cat = cut(price, breaks = c(-Inf, q33, q67, Inf),
+                         labels = c("Economica", "Intermedia", "Cara"),
+                         right = TRUE, ordered_result = TRUE))
+
+test_clf <- test_num %>%
+  mutate(price_cat = cut(price, breaks = c(-Inf, q33, q67, Inf),
+                         labels = c("Economica", "Intermedia", "Cara"),
+                         right = TRUE, ordered_result = TRUE))
+
+train_tree_clf <- train_clf %>% select(-price)
+test_tree_clf  <- test_clf  %>% select(-price)
+
+calc_rmse <- function(obs, pred) sqrt(mean((obs - pred)^2, na.rm = TRUE))
+calc_mae  <- function(obs, pred) mean(abs(obs - pred), na.rm = TRUE)
+calc_r2   <- function(obs, pred) {
+  ss_res <- sum((obs - pred)^2, na.rm = TRUE)
+  ss_tot <- sum((obs - mean(obs, na.rm = TRUE))^2, na.rm = TRUE)
+  1 - ss_res / ss_tot
+}
 ```
 
 ## **Repositorio**
@@ -54,93 +109,12 @@ print(table(train_clf$price_cat))
 
 Se aplica exactamente el mismo preprocesamiento, semilla y partición de los Laboratorios 3, 4, 5 y 6 para garantizar que todos los modelos sean comparables bajo las mismas condiciones.
 
-```{r preprocesamiento}
-listings$price <- as.numeric(gsub("[$,]", "", listings$price))
-
-vars_eliminar <- c(
-  "id", "listing_url", "scrape_id", "picture_url",
-  "host_id", "host_url", "host_thumbnail_url", "host_picture_url",
-  "name", "description", "neighborhood_overview", "host_about",
-  "host_name", "host_location", "amenities", "host_verifications",
-  "source", "last_scraped", "calendar_last_scraped", "calendar_updated",
-  "host_since", "first_review", "last_review",
-  "bathrooms_text", "host_total_listings_count", "neighbourhood",
-  "minimum_nights_avg_ntm", "maximum_nights_avg_ntm",
-  "number_of_reviews_ltm", "number_of_reviews_l30d", "number_of_reviews_ly",
-  "calculated_host_listings_count_entire_homes",
-  "calculated_host_listings_count_private_rooms",
-  "calculated_host_listings_count_shared_rooms",
-  "estimated_revenue_l365d",
-  "host_has_profile_pic", "neighbourhood_group_cleansed"
-)
-
-listings_clean <- listings[, !(names(listings) %in% vars_eliminar)]
-```
-
-```{r division}
-listings_model <- listings_clean[!is.na(listings_clean$price), ]
-
-set.seed(42)
-trainIndex <- sample(seq_len(nrow(listings_model)), size = floor(0.7 * nrow(listings_model)))
-train <- listings_model[ trainIndex, ]
-test  <- listings_model[-trainIndex, ]
-
+```{r confirmacion-sets}
 cat("Total de filas en dataset:", nrow(listings_model), "\n")
-cat("Datos entrenamiento:", nrow(train), "\n")
-cat("Datos prueba:", nrow(test), "\n")
-```
-
-```{r datos-numericos}
-train_num <- na.omit(train[, sapply(train, is.numeric)])
-test_num  <- test[, names(train_num)]
-test_num  <- na.omit(test_num)
-
-cat("Predictores numéricos disponibles:", ncol(train_num) - 1, "\n")
-cat("Filas en entrenamiento (numérico):", nrow(train_num), "\n")
-cat("Filas en prueba (numérico):", nrow(test_num), "\n")
-```
-
-```{r variable-categorica}
-q33 <- as.numeric(quantile(train_num$price, probs = 0.33, na.rm = TRUE))
-q67 <- as.numeric(quantile(train_num$price, probs = 0.67, na.rm = TRUE))
-
-train_clf <- train_num %>%
-  mutate(
-    price_cat = cut(
-      price,
-      breaks = c(-Inf, q33, q67, Inf),
-      labels = c("Economica", "Intermedia", "Cara"),
-      right = TRUE,
-      ordered_result = TRUE
-    )
-  )
-
-test_clf <- test_num %>%
-  mutate(
-    price_cat = cut(
-      price,
-      breaks = c(-Inf, q33, q67, Inf),
-      labels = c("Economica", "Intermedia", "Cara"),
-      right = TRUE,
-      ordered_result = TRUE
-    )
-  )
-
-train_tree_clf <- train_clf %>% select(-price)
-test_tree_clf  <- test_clf  %>% select(-price)
-
+cat("Datos entrenamiento:", nrow(train_num), "\n")
+cat("Datos prueba:", nrow(test_num), "\n")
 cat("Limite superior Economica:", q33, "\n")
 cat("Limite superior Intermedia:", q67, "\n")
-```
-
-```{r funciones-metricas, include=FALSE}
-calc_rmse <- function(obs, pred) sqrt(mean((obs - pred)^2, na.rm = TRUE))
-calc_mae  <- function(obs, pred) mean(abs(obs - pred), na.rm = TRUE)
-calc_r2   <- function(obs, pred) {
-  ss_res <- sum((obs - pred)^2, na.rm = TRUE)
-  ss_tot <- sum((obs - mean(obs, na.rm = TRUE))^2, na.rm = TRUE)
-  1 - ss_res / ss_tot
-}
 ```
 
 ---
@@ -170,6 +144,30 @@ modelo_rl_cara <- train(
 
 summary(modelo_rl_cara$finalModel)
 ```
+
+Se entrenó un modelo de regresión logística binaria para predecir si una propiedad es cara o no, utilizando todas las variables numéricas disponibles a excepción del precio. Al revisar los resultados, la deviance nula es de 55,478, que es el error que se obtiene cuando el modelo solo predice en base al promedio, sin considerar ninguna variable. Ya con el modelo ajustado, esta cae a 36,665, lo que indica que las variables incluidas sí están aportando información real sobre lo que caracteriza a una propiedad cara.
+
+En cuanto a las variables significativas, las siguientes tienen un impacto positivo sobre la probabilidad de ser cara:
+
+- `bathrooms`
+- `bedrooms`
+- `accommodates`
+- `beds`
+- `review_scores_rating`
+- `review_scores_cleanliness`
+- `review_scores_location`
+- `latitude`
+
+Esto tiene sentido porque estas variables nos permiten aproximarnos al tamaño de la propiedad y a su relación calidad-precio. Mientras que las siguientes tienden a reducir la probabilidad de que una propiedad sea clasificada como cara:
+
+- `review_scores_value`
+- `review_scores_checkin`
+- `review_scores_communication`
+- `estimated_occupancy_l365d`
+- `reviews_per_month`
+- `minimum_minimum_nights`
+- `availability_eoy`
+- `longitude`
 
 ---
 
@@ -266,8 +264,47 @@ La curva contribuye a la idea de que no hay sobreajuste, ya que se evidencia que
 ## **Actividad 7 — Tuneo con Regularización**
 
 ```{r rl-cara-tuneo}
+X_train_rl <- model.matrix(es_cara ~ ., data = train_rl)[, -1]
+X_test_rl  <- model.matrix(es_cara ~ ., data = test_rl)[, -1]
+y_train_rl <- ifelse(train_rl$es_cara == "Si", 1, 0)
 
+set.seed(123)
+modelo_ridge <- cv.glmnet(X_train_rl, y_train_rl, alpha = 0, family = "binomial")
+modelo_lasso <- cv.glmnet(X_train_rl, y_train_rl, alpha = 1, family = "binomial")
+
+cat("Lambda optimo Ridge:", modelo_ridge$lambda.min, "\n")
+cat("Lambda optimo Lasso:", modelo_lasso$lambda.min, "\n")
+
+mejor_alpha <- ifelse(min(modelo_ridge$cvm) < min(modelo_lasso$cvm), 0, 1)
+mejor_lambda <- ifelse(mejor_alpha == 0, modelo_ridge$lambda.min, modelo_lasso$lambda.min)
+
+cat("Mejor alpha:", mejor_alpha, "\n")
+cat("Mejor lambda:", mejor_lambda, "\n")
+
+modelo_rl_tuned <- glmnet(X_train_rl, y_train_rl, alpha = mejor_alpha,
+                           lambda = mejor_lambda, family = "binomial")
+
+pred_tuned_prob <- predict(modelo_rl_tuned, newx = X_test_rl, type = "response")[, 1]
+pred_tuned_clase <- factor(ifelse(pred_tuned_prob >= 0.5, "Si", "No"), levels = c("No", "Si"))
+
+cm_tuned <- confusionMatrix(pred_tuned_clase, test_rl$es_cara, positive = "Si")
+print(cm_tuned)
 ```
+
+Al comparar ambos modelos, Lasso (alpha=1) obtuvo un menor error en validación cruzada que Ridge (alpha=0), con un lambda óptimo de 0.0001463032. Este valor pequeño indica que la penalización aplicada es leve, lo que sugiere que la mayoría de variables aportan al modelo y no es necesario eliminar muchas. Con base en esto, se entrena un tercer modelo utilizando estos parámetros.
+
+```{r rl-cara-tuned-final}
+modelo_rl_tuned <- glmnet(X_train_rl, y_train_rl, alpha = mejor_alpha,
+                           lambda = mejor_lambda, family = "binomial")
+
+pred_tuned_prob <- predict(modelo_rl_tuned, newx = X_test_rl, type = "response")[, 1]
+pred_tuned_clase <- factor(ifelse(pred_tuned_prob >= 0.5, "Si", "No"), levels = c("No", "Si"))
+
+cm_tuned <- confusionMatrix(pred_tuned_clase, test_rl$es_cara, positive = "Si")
+print(cm_tuned)
+```
+
+El modelo tuneado con Lasso mantiene métricas prácticamente idénticas al modelo base, con un accuracy de 81.09%, sensitivity de 62.40% y specificity de 90.20%.
 
 ---
 
