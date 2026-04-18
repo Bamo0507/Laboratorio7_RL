@@ -339,7 +339,7 @@ cat("Specificity en umbral optimo:", round(roc_cara$specificities[youden_idx], 4
 ```
 
 ```{r rl-cara-umbral-optimo}
-for (umbral in c(0.3, 0.4)) {
+for (umbral in c(0.3, 0.3492, 0.4)) {
   pred_u <- factor(ifelse(pred_tuned_prob >= umbral, "Si", "No"), levels = c("No", "Si"))
   cm_u <- confusionMatrix(pred_u, test_rl$es_cara, positive = "Si")
   cat("Umbral:", umbral, "\n")
@@ -348,6 +348,8 @@ for (umbral in c(0.3, 0.4)) {
   cat("Specificity: ", round(cm_u$byClass["Specificity"], 4), "\n\n")
 }
 ```
+
+El índice de Youden identificó un umbral óptimo de 0.3492, por lo que se probó el modelo con umbrales de 0.3, 0.3492 y 0.4. Dado el tipo de negocio, lo que más interesa es no dejar escapar propiedades caras, ya que clasificarlas a un precio menor al real implica pérdidas directas para SmartStay. Por eso, el criterio de selección prioriza la sensitivity más alta, que se obtiene con un umbral de 0.3. Si bien este no ofrece el mejor accuracy ni la mayor specificity, es el que mejor se adapta a lo que el negocio necesita cuidar. 
 
 ---
 
