@@ -311,23 +311,42 @@ El modelo tuneado con Lasso mantiene métricas prácticamente idénticas al mode
 ## **Actividad 8 — Matriz de Confusión y Rendimiento**
 
 ```{r rl-cara-matriz}
-
+print(cm_tuned)
 ```
 
 ```{r rl-cara-profvis}
-
+tiempo_rl <- system.time({
+  predict(modelo_rl_tuned, newx = X_test_rl, type = "response")
+})
+cat("Tiempo de prediccion (segundos):", tiempo_rl["elapsed"], "\n")
 ```
+
+Los resultados reafirman lo discutido en actividades anteriores: el modelo es bueno descartando propiedades que no son caras, lo que evidencia que ha aprendido bien a identificar lo que caracteriza a esta categoría. No obstante, sigue siendo débil al momento de identificar propiedades que sí son caras. En la matriz se observa que 2,301 propiedades caras fueron clasificadas como no caras, lo que puede impactar directamente al negocio de SmartStay al comercializar propiedades por debajo de su precio real. En cuanto al tiempo de ejecución, el modelo tarda apenas 0.033 segundos en generar predicciones, lo que lo hace muy eficiente en ese aspecto.
 
 ---
 
 ## **Actividad 9 — Optimización del Umbral de Decisión**
 
 ```{r rl-cara-roc}
+roc_cara <- roc(as.numeric(test_rl$es_cara == "Si"), pred_tuned_prob)
+plot(roc_cara, main = "Curva ROC - Modelo Logístico (¿Es cara?)", col = "steelblue")
 
+youden_idx <- which.max(roc_cara$sensitivities + roc_cara$specificities - 1)
+umbral_youden <- roc_cara$thresholds[youden_idx]
+cat("Umbral optimo (Youden):", round(umbral_youden, 4), "\n")
+cat("Sensitivity en umbral optimo:", round(roc_cara$sensitivities[youden_idx], 4), "\n")
+cat("Specificity en umbral optimo:", round(roc_cara$specificities[youden_idx], 4), "\n")
 ```
 
 ```{r rl-cara-umbral-optimo}
-
+for (umbral in c(0.3, 0.4)) {
+  pred_u <- factor(ifelse(pred_tuned_prob >= umbral, "Si", "No"), levels = c("No", "Si"))
+  cm_u <- confusionMatrix(pred_u, test_rl$es_cara, positive = "Si")
+  cat("Umbral:", umbral, "\n")
+  cat("Accuracy:    ", round(cm_u$overall["Accuracy"], 4), "\n")
+  cat("Sensitivity: ", round(cm_u$byClass["Sensitivity"], 4), "\n")
+  cat("Specificity: ", round(cm_u$byClass["Specificity"], 4), "\n\n")
+}
 ```
 
 ---
