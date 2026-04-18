@@ -425,7 +425,15 @@ comparacion_binaria <- data.frame(
   )
 )
 
-knitr::kable(round(comparacion_binaria, 4), caption = "Comparación de variantes del modelo binario")
+comparacion_binaria_fmt <- comparacion_binaria
+comparacion_binaria_fmt[] <- lapply(comparacion_binaria_fmt, function(x) {
+  if (is.numeric(x)) round(x, 4) else x
+})
+
+knitr::kable(
+  comparacion_binaria_fmt,
+  caption = "Comparación de variantes del modelo binario"
+)
 print(cm_youden)
 ```
 
@@ -494,7 +502,15 @@ metricas_multi <- data.frame(
   recall = as.numeric(recall_multi)
 )
 
-knitr::kable(round(metricas_multi, 4), caption = "Precisión y recall por clase del modelo multinomial")
+metricas_multi_fmt <- metricas_multi
+metricas_multi_fmt[] <- lapply(metricas_multi_fmt, function(x) {
+  if (is.numeric(x)) round(x, 4) else x
+})
+
+knitr::kable(
+  metricas_multi_fmt,
+  caption = "Precisión y recall por clase del modelo multinomial"
+)
 cat("Tiempo de entrenamiento (segundos):", tiempo_multi_fit["elapsed"], "\n")
 cat("Tiempo de predicción (segundos):", tiempo_multi_pred["elapsed"], "\n")
 ```
@@ -616,7 +632,15 @@ comparacion_modelos <- dplyr::bind_rows(
 comparacion_modelos <- comparacion_modelos %>%
   arrange(desc(accuracy))
 
-knitr::kable(round(comparacion_modelos, 4), caption = "Comparación final de modelos de clasificación")
+comparacion_modelos_fmt <- comparacion_modelos
+comparacion_modelos_fmt[] <- lapply(comparacion_modelos_fmt, function(x) {
+  if (is.numeric(x)) round(x, 4) else x
+})
+
+knitr::kable(
+  comparacion_modelos_fmt,
+  caption = "Comparación final de modelos de clasificación"
+)
 ```
 
 ```{r comparacion-final}
