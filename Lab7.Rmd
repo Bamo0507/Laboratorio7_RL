@@ -148,8 +148,27 @@ calc_r2   <- function(obs, pred) {
 ## **Actividad 3 — Modelo de Regresión Logística Binaria (¿Es cara?)**
 
 ```{r rl-cara-train}
-# Usar glm estándar (family = binomial), sin cross-validation en el preprocesamiento
-# CV durante entrenamiento tomó tiempo excesivo en Lab 6
+set.seed(123)
+
+train_rl <- train_clf %>%
+  select(-price, -price_cat, -es_intermedia, -es_economica) %>%
+  mutate(es_cara = factor(es_cara, levels = c(0, 1), labels = c("No", "Si")))
+
+test_rl <- test_clf %>%
+  select(-price, -price_cat, -es_intermedia, -es_economica) %>%
+  mutate(es_cara = factor(es_cara, levels = c(0, 1), labels = c("No", "Si")))
+
+ctrl <- trainControl(method = "cv", number = 5)
+
+modelo_rl_cara <- train(
+  es_cara ~ .,
+  data = train_rl,
+  method = "glm",
+  family = binomial,
+  trControl = ctrl
+)
+
+summary(modelo_rl_cara$finalModel)
 ```
 
 ---
@@ -157,11 +176,19 @@ calc_r2   <- function(obs, pred) {
 ## **Actividad 4 — Análisis del Modelo**
 
 ```{r rl-cara-vif}
-
+library(car)
+vif(modelo_rl_cara$finalModel)
 ```
 
-```{r rl-cara-correlacion}
+El análisis de VIF revela multicolinealidad significativa entre algunas variables. Las más críticas son las relacionadas con disponibilidad: `availability_30`, `availability_60`, `availability_90`, `availability_365` y `availability_eoy`, todas con VIF elevados. Esto tiene sentido dado que cada una de estas variables mide qué tan disponible se mantiene una propiedad, simplemente tomando en cuenta diferentes espacios de tiempo. Por su parte, `latitude` y `longitude` también presentan multicolinealidad alta (VIF ~14), lo cual es esperable ya que ambas variables describen conjuntamente la ubicación geográfica de una propiedad y no pueden separarse conceptualmente.
 
+La presencia de esta multicolinealidad no invalida el modelo para fines predictivos, pero sí afecta la interpretación individual de los coeficientes: cuando dos variables están muy correlacionadas, el modelo tiene dificultad para determinar cuánto le corresponde a cada una, lo que puede hacer que sus estimaciones no sean del todo precisas. A pesar de esto, la caída en deviance observada anteriormente indica que el modelo en su conjunto sí se adapta bien a los datos de entrenamiento.
+
+```{r rl-cara-correlacion}
+vars_pred <- train_rl %>% select(-es_cara)
+cor_matrix <- cor(vars_pred, use = "complete.obs")
+corrplot::corrplot(cor_matrix, method = "color", type = "upper",
+                   tl.cex = 0.6, tl.col = "black", diag = FALSE)
 ```
 
 ---
